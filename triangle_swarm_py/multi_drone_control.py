@@ -7,10 +7,10 @@ from geometry_msgs.msg import PoseStamped
 import math
 import time
 
-N_DRONES = 5  # 드론 개수
-DRONE_STATES = [State() for _ in range(N_DRONES)]  # 드론 상태
-ARM_SERVICES = []  # 드론 시동 서비스
-SET_MODE_SERVICES = []  # 드론 모드 설정 서비스
+N_DRONES = 5  
+DRONE_STATES = [State() for _ in range(N_DRONES)]  
+ARM_SERVICES = [] 
+SET_MODE_SERVICES = []  
 
 def state_cb(data, drone_id):
     global DRONE_STATES
@@ -36,7 +36,7 @@ def form_triangle(leader_pose):
         
         x = leader_pose.pose.position.x + 5 * math.cos(math.radians(angle))
         y = leader_pose.pose.position.y + 5 * math.sin(math.radians(angle))
-        z = leader_pose.pose.position.z  # 팔로워 드론의 고도는 리더 드론과 동일
+        z = leader_pose.pose.position.z  
 
         follower_pose = PoseStamped()
         follower_pose.pose.position.x = x
@@ -54,7 +54,7 @@ def main():
 
     follower_pose_pubs = [rospy.Publisher(f"uav{i}/mavros/setpoint_position/local", PoseStamped, queue_size=10) for i in range(1, N_DRONES)]
 
-    rate = rospy.Rate(20)  # 20Hz
+    rate = rospy.Rate(20)  
 
     while not rospy.is_shutdown():
         leader_pose = rospy.wait_for_message("uav0/mavros/local_position/pose", PoseStamped)
