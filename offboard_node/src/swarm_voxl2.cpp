@@ -24,6 +24,7 @@ mavros_msgs::State uav8_current_state;
 mavros_msgs::State uav9_current_state;
 
 geometry_msgs::PoseStamped leader_pose;
+
 double leader_heading = 0.0;
 
 void uav0_state_now(const mavros_msgs::State::ConstPtr& msg){
@@ -94,6 +95,15 @@ bool armVehicle(ros::ServiceClient& arming_client) {
     mavros_msgs::CommandBool arm_cmd;
     arm_cmd.request.value = true;
     if (arming_client.call(arm_cmd) && arm_cmd.response.success) {
+        return true;
+    }
+    return false;
+}
+
+bool setReturnMode(ros::ServiceClient& set_mode_client) {
+    mavros_msgs::SetMode return_set_mode;
+    return_set_mode.request.custom_mode = "AUTO.RTL";
+    if (set_mode_client.call(return_set_mode) && return_set_mode.response.mode_sent) {
         return true;
     }
     return false;
@@ -174,72 +184,86 @@ int main(int argc, char **argv)
     ros::ServiceClient uav9_set_mode_client = nh.serviceClient<mavros_msgs::SetMode> ("uav9/mavros1/set_mode");
 
     //the setpoint publishing rate MUST be faster than 2Hz
-    ros::Rate rate(1.0);
+    ros::Rate rate(100.0);
     ros::Time last_request = ros::Time::now();
 
     while(ros::ok()){
 
         if (ros::ok() && uav1_current_state.connected) {
-            if( uav1_current_state.mode != "OFFBOARD" && (ros::Time::now() - last_request > ros::Duration(0.5))){
-                if (setOffboardMode(uav1_set_mode_client)) {
-                    ROS_INFO("uav1_Offboard enabled");
-                    last_request = ros::Time::now();
-                }
-            } else {
-                if( !uav1_current_state.armed && (ros::Time::now() - last_request > ros::Duration(0.5))){
-                    if (armVehicle(uav1_arming_client)) {
-                        ROS_INFO("uav1_Vehicle armed");
+            if (uav0_current_state.mode == "AUTO.RTL") {
+                setReturnMode(uav1_set_mode_client);
+            }else{
+                if( uav1_current_state.mode != "OFFBOARD" && (ros::Time::now() - last_request > ros::Duration(0.5))){
+                    if (setOffboardMode(uav1_set_mode_client)) {
+                        ROS_INFO("uav1_Offboard enabled");
                         last_request = ros::Time::now();
                     }
+                } else {
+                    if( !uav1_current_state.armed && (ros::Time::now() - last_request > ros::Duration(0.5))){
+                        if (armVehicle(uav1_arming_client)) {
+                            ROS_INFO("uav1_Vehicle armed");
+                            last_request = ros::Time::now();
+                        }
+                    }
                 }
+                swarm_setpoint(uav1_pos_pub, rate, -5, -5, 1, 2);
+                ros::spinOnce();
+                rate.sleep();  
             }
-            swarm_setpoint(uav1_pos_pub, rate, -5, -5, 1, 2);
-            ros::spinOnce();
-            rate.sleep();
+            
         }else {
             ros::spinOnce();
             rate.sleep();
         }
 
         if (ros::ok() && uav2_current_state.connected) {
-            if( uav2_current_state.mode != "OFFBOARD" && (ros::Time::now() - last_request > ros::Duration(0.5))){
-                if (setOffboardMode(uav2_set_mode_client)) {
-                    ROS_INFO("uav2_Offboard enabled");
-                    last_request = ros::Time::now();
-                }
-            } else {
-                if( !uav2_current_state.armed && (ros::Time::now() - last_request > ros::Duration(0.5))){
-                    if (armVehicle(uav2_arming_client)) {
-                        ROS_INFO("uav2_Vehicle armed");
+            if (uav0_current_state.mode == "AUTO.RTL") {
+                setReturnMode(uav2_set_mode_client);
+            } else{
+                if( uav2_current_state.mode != "OFFBOARD" && (ros::Time::now() - last_request > ros::Duration(0.5))){
+                    if (setOffboardMode(uav2_set_mode_client)) {
+                        ROS_INFO("uav2_Offboard enabled");
                         last_request = ros::Time::now();
                     }
-                }
+                    } else {
+                        if( !uav2_current_state.armed && (ros::Time::now() - last_request > ros::Duration(0.5))){
+                            if (armVehicle(uav2_arming_client)) {
+                                ROS_INFO("uav2_Vehicle armed");
+                                last_request = ros::Time::now();
+                            }
+                        }
+                    }
+                swarm_setpoint(uav2_pos_pub, rate,  5, -5, 1, 2);
+                ros::spinOnce();
+                rate.sleep();
             }
-            swarm_setpoint(uav2_pos_pub, rate,  5, -5, 1, 2);
-            ros::spinOnce();
-            rate.sleep();
+            
         }else {
             ros::spinOnce();
             rate.sleep();
         }
 
         if (ros::ok() && uav3_current_state.connected) {
-            if( uav3_current_state.mode != "OFFBOARD" && (ros::Time::now() - last_request > ros::Duration(0.5))){
-                if (setOffboardMode(uav3_set_mode_client)) {
-                    ROS_INFO("uav3_Offboard enabled");
-                    last_request = ros::Time::now();
-                }
-            } else {
-                if( !uav3_current_state.armed && (ros::Time::now() - last_request > ros::Duration(0.5))){
-                    if (armVehicle(uav3_arming_client)) {
-                        ROS_INFO("uav3_Vehicle armed");
+            if (uav0_current_state.mode == "AUTO.RTL") {
+                setReturnMode(uav2_set_mode_client);
+            } else{
+                if( uav3_current_state.mode != "OFFBOARD" && (ros::Time::now() - last_request > ros::Duration(0.5))){
+                    if (setOffboardMode(uav3_set_mode_client)) {
+                        ROS_INFO("uav3_Offboard enabled");
                         last_request = ros::Time::now();
                     }
+                } else {
+                    if( !uav3_current_state.armed && (ros::Time::now() - last_request > ros::Duration(0.5))){
+                        if (armVehicle(uav3_arming_client)) {
+                            ROS_INFO("uav3_Vehicle armed");
+                            last_request = ros::Time::now();
+                        }
+                    }
                 }
+                swarm_setpoint(uav3_pos_pub, rate,  -10, -10, 1, 2);
+                ros::spinOnce();
+                rate.sleep();
             }
-            swarm_setpoint(uav3_pos_pub, rate,  -10, -10, 1, 2);
-            ros::spinOnce();
-            rate.sleep();
         }else {
             ros::spinOnce();
             rate.sleep();
