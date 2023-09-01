@@ -1,78 +1,120 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 import rospy
-from mavros_msgs.msg import State
-from mavros_msgs.srv import CommandBool, SetMode
 from geometry_msgs.msg import PoseStamped
+from mavros_msgs.srv import CommandBool, SetMode
+from mavros_msgs.msg import State
+from tf.transformations import euler_from_quaternion
+from tf.transformations import quaternion_from_euler
+
 import math
-import time
 
-N_DRONES = 5  
-DRONE_STATES = [State() for _ in range(N_DRONES)]  
-ARM_SERVICES = [] 
-SET_MODE_SERVICES = []  
+# Global variables
+leader_pose = PoseStamped()
+follower_states = {
+    "uav1": State(),
+    "uav2": State(),
+    "uav3": State(),
+    "uav4": State(),
+    "uav5": State(),
+}
+# Global variable to store leader's velocity
+leader_velocity = None
 
-def state_cb(data, drone_id):
-    global DRONE_STATES
-    DRONE_STATES[drone_id] = data
+# Callback for leader velocity
+def leader_velocity_cb(data):
+    global leader_velocity
+    leader_velocity = data
 
-def initialize_drones():
-    global ARM_SERVICES, SET_MODE_SERVICES
-    for i in range(N_DRONES):
-        rospy.Subscriber(f"uav{i}/mavros/state", State, state_cb, i)
-        ARM_SERVICES.append(rospy.ServiceProxy(f"uav{i}/mavros/cmd/arming", CommandBool))
-        SET_MODE_SERVICES.append(rospy.ServiceProxy(f"uav{i}/mavros/set_mode", SetMode))
+# Callback for leader state
+def leader_state_cb(data):
+    global leader_pose
+    leader_pose = data
 
-def form_triangle(leader_pose):
-    follower_positions = []
-    
-    angle_offset = 180.0 / (N_DRONES - 1)
-    
-    for i in range(1, N_DRONES):
-        if i % 2 == 0:
-            angle = -angle_offset * (i // 2)
-        else:
-            angle = angle_offset * ((i + 1) // 2)
-        
-        x = leader_pose.pose.position.x + 5 * math.cos(math.radians(angle))
-        y = leader_pose.pose.position.y + 5 * math.sin(math.radians(angle))
-        z = leader_pose.pose.position.z  
+# Callback for follower states
+def follower_state_cb(uav_name, data):
+    global follower_states
+    follower_states[uav_name] = data
 
-        follower_pose = PoseStamped()
-        follower_pose.pose.position.x = x
-        follower_pose.pose.position.y = y
-        follower_pose.pose.position.z = z
-        follower_positions.append(follower_pose)
-    
-    return follower_positions
-
+# Main function
 def main():
-    rospy.init_node("multi_drone_control", anonymous=True)
-    initialize_drones()
+    rospy.init_node('follow_the_leader', anonymous=True)
+    rospy.loginfo("Node initialized")
 
-    leader_pose_sub = rospy.Subscriber("uav0/mavros/local_position/pose", PoseStamped, state_cb, 0)
+    # Subscribe to leader's position
+    rospy.Subscriber("uav0/mavros/local_position/pose", PoseStamped, leader_state_cb)
+    
 
-    follower_pose_pubs = [rospy.Publisher(f"uav{i}/mavros/setpoint_position/local", PoseStamped, queue_size=10) for i in range(1, N_DRONES)]
+    # Subscribe to follower states
+    for uav_name in follower_states.keys():
+        rospy.Subscriber("{}/mavros/state".format(uav_name), State, callback=lambda data, uav_name=uav_name: follower_state_cb(uav_name, data))
 
-    rate = rospy.Rate(20)  
+    # Service clients for setting mode and arming
+    set_mode_srvs = {uav_name: rospy.ServiceProxy("{}/mavros/set_mode".format(uav_name), SetMode) for uav_name in follower_states.keys()}
+    arming_srvs = {uav_name: rospy.ServiceProxy("{}/mavros/cmd/arming".format(uav_name), CommandBool) for uav_name in follower_states.keys()}
+
+    # Publishers for followers' target positions
+    local_pos_pubs = {uav_name: rospy.Publisher("{}/mavros/setpoint_position/local".format(uav_name), PoseStamped, queue_size=10) for uav_name in follower_states.keys()}
+
+    rate = rospy.Rate(20)
+
+    is_first_time = True  # to check if OFFBOARD and arm state set for the first time
 
     while not rospy.is_shutdown():
-        leader_pose = rospy.wait_for_message("uav0/mavros/local_position/pose", PoseStamped)
 
-        if leader_pose.pose.position.z >= 2.0:
-            for i in range(1, N_DRONES):
-                if not DRONE_STATES[i].armed:
-                    ARM_SERVICES[i](True)
-                    SET_MODE_SERVICES[i](0, "OFFBOARD")
-                    time.sleep(1)
+        if leader_pose.pose.position.z > 2:
+            
+            orientation_q = leader_pose.pose.orientation
+            orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+            (_, _, yaw) = euler_from_quaternion(orientation_list)
 
-        follower_positions = form_triangle(leader_pose)
+            for idx, uav_name in enumerate(sorted(follower_states.keys())):
 
-        for i in range(N_DRONES - 1):
-            if DRONE_STATES[i+1].connected:
-                follower_pose_pubs[i].publish(follower_positions[i])
+                if follower_states[uav_name].mode != "OFFBOARD":
+                    res_mode = set_mode_srvs[uav_name](custom_mode="OFFBOARD")
+                    res_arm = arming_srvs[uav_name](True)
+                    
+                    if res_mode and res_arm:
+                        rospy.loginfo("{} successfully changed to OFFBOARD and armed.".format(uav_name))
+                    else:
+                        rospy.loginfo("Failed to set OFFBOARD and arm {}".format(uav_name))
+
+                x_offset, y_offset = 0, 0
+                row = idx // 2
+                col = idx % 2
+                
+                if row == 0:
+                    x_offset = -3
+                elif row == 1:
+                    x_offset = -6
+                else:
+                    x_offset = -9
+                
+                if col == 0:
+                    y_offset = -3
+                else:
+                    y_offset = 3
+
+                x_rotated = x_offset * math.cos(yaw) - y_offset * math.sin(yaw)
+                y_rotated = x_offset * math.sin(yaw) + y_offset * math.cos(yaw)
+
+                follow_pose = PoseStamped()
+                follow_pose.header.stamp = rospy.Time.now()
+                follow_pose.pose.position.x = leader_pose.pose.position.x + x_rotated
+                follow_pose.pose.position.y = leader_pose.pose.position.y + y_rotated
+                follow_pose.pose.position.z = leader_pose.pose.position.z
+                follow_pose.pose.orientation = orientation_q
+                
+                local_pos_pubs[uav_name].publish(follow_pose)
 
         rate.sleep()
 
-if __name__ == "__main__":
+
+
+
+
+
+
+
+if __name__ == '__main__':
     main()
