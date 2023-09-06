@@ -19,6 +19,6 @@ include_directories(
 )
 
 add_executable(offboard_cpp src/offboard.cpp)
-add_executable(swarm_voxl2 src/swarm_voxl2.cpp)
+add_executable(swarm_voxl2 src/swarm_multicopter.cpp)
 target_link_libraries(offboard_cpp ${catkin_LIBRARIES})
 target_link_libraries(swarm_voxl2 ${catkin_LIBRARIES})
